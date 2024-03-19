@@ -44,7 +44,7 @@ class AMI(Resource):
 
         new_image_id = response_dict['CreateImageResponse']['imageId']
         logging.debug(
-            f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} New Group ID:: {new_image_id}')
+            f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} New AMI ID:: {new_image_id}')
 
         return new_image_id
 
@@ -55,7 +55,7 @@ class AMI(Resource):
     def validate(self, image_id):
         self.OPERATION_NAME = 'describeImages'
         logging.debug(
-            f'START:: {self.SERVICE_NAME} {self.OPERATION_NAME} SECURITY_GROUP_ID: {image_id}')
+            f'START:: {self.SERVICE_NAME} {self.OPERATION_NAME} AMI Image ID: {image_id}')
 
         try:
 
@@ -88,3 +88,42 @@ class AMI(Resource):
             f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} Status:: {image_state}')
 
         return image_state
+
+    def create_launch_template(self, image_id, security_group_id):
+        self.OPERATION_NAME = 'createLaunchTemplate'
+
+        logging.debug(f'START:: {self.SERVICE_NAME} {self.OPERATION_NAME}')
+
+        try:
+
+            # params
+            additional_params = {
+                'LaunchTemplateData.ImageId': image_id,
+                'LaunchTemplateData.SecurityGroupId.1': security_group_id
+            }
+
+            api_uri, auth_params = ServiceRegistry.generate_service_url(
+                self.SERVICE_NAME, self.OPERATION_NAME, additional_params=additional_params)
+
+            response = requests.request(
+                method='GET', url=api_uri, auth=auth_params)
+
+            response_dict = Resource.parseResponse(response)
+            logging.debug(
+                f'Response:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {response_dict}')
+
+            response.raise_for_status()
+
+        except requests.exceptions.HTTPError:
+            logging.debug(
+                f'Http Error:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {requests.exceptions.HTTPError}')
+            awsErrorCode = response_dict['Response']['Errors']['Error']['Code']
+            logging.debug(
+                f'AWS Error Code:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {awsErrorCode}')
+            sys.exit(1)
+
+        launch_template_id = response_dict['CreateLaunchTemplateResponse']['launchTemplate']['launchTemplateId']
+        logging.debug(
+            f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} New Launch Template ID:: {launch_template_id}')
+
+        return launch_template_id

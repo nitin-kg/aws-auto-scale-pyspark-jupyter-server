@@ -1,30 +1,39 @@
-from service_registry import ServiceRegistry
 from resource import Resource
-import requests
+import os
 import logging
+from service_registry import ServiceRegistry
+import requests
 import sys
 
-class SecurityGroup(Resource):
+
+class LoadBalancer(Resource):
 
     def __init__(self):
-        self.SERVICE_NAME = 'securityGroup'
+        self.SERVICE_NAME = 'alb'
         self.OPERATION_NAME = ''
 
-    def create(self):
-        self.OPERATION_NAME = 'createSecurityGroup'
+    def create(self, subnet_ids, security_group_id, ):
+        self.OPERATION_NAME = 'createLoadBalancer'
 
         logging.debug(f'START:: {self.SERVICE_NAME} {self.OPERATION_NAME}')
 
         try:
 
+            # params
+            additional_params = {
+                'Subnets.member.1': subnet_ids[0],
+                'Subnets.member.2': subnet_ids[1],
+                'Subnets.member.3': subnet_ids[2],
+                'SecurityGroups.member.1': security_group_id
+            }
+
             api_uri, auth_params = ServiceRegistry.generate_service_url(
-                self.SERVICE_NAME, self.OPERATION_NAME, additional_params={})
+                self.SERVICE_NAME, self.OPERATION_NAME, additional_params=additional_params)
 
             response = requests.request(
                 method='GET', url=api_uri, auth=auth_params)
 
             response_dict = Resource.parseResponse(response)
-
             logging.debug(
                 f'Response:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {response_dict}')
 
@@ -33,33 +42,32 @@ class SecurityGroup(Resource):
         except requests.exceptions.HTTPError:
             logging.debug(
                 f'Http Error:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {requests.exceptions.HTTPError}')
-            awsErrorCode = response_dict['Response']['Errors']['Error']['Code']
+            awsErrorCode = response_dict['ErrorResponse']['Error']['Code']
             logging.debug(
                 f'AWS Error Code:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {awsErrorCode}')
             sys.exit(1)
 
-        security_group_id = response_dict['CreateSecurityGroupResponse']['groupId']
-
+        new_load_balancer_arn = response_dict['CreateLoadBalancerResponse'][
+            'CreateLoadBalancerResult']['LoadBalancers']['member']['LoadBalancerArn']
         logging.debug(
-            f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} New Group ID:: {security_group_id}')
+            f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} New Load Balancer ARN:: {new_load_balancer_arn}')
 
-        return security_group_id
+        return new_load_balancer_arn
 
     """ 
-    Since there is no "state" associated with the creation of a security group
-    we would need to just verify whether the security exist on the cloud or not.
-    
-    We query the security group with the returned group id and validate that there 
-    is no error and if error happens it is not - InvalidSecurityGroupID.NotFound.
+    The Load Balancer creation takes some time and the state changes from 'provisioning' to 'active'
     """
 
-    def validate(self, security_group_id):
-        self.OPERATION_NAME = 'describeSecurityGroups'
+    def validate(self, load_balancer_arn):
+        self.OPERATION_NAME = 'describeLoadBalancer'
         logging.debug(
-            f'START:: {self.SERVICE_NAME} {self.OPERATION_NAME} SECURITY_GROUP_ID: {security_group_id}')
+            f'START:: {self.SERVICE_NAME} {self.OPERATION_NAME} LOAD_BALANCER_ID: {load_balancer_arn}')
+
         try:
 
-            additional_params = {'GroupId.1': security_group_id}
+            # params
+            additional_params = {
+                'LoadBalancerArns.member.1': load_balancer_arn}
 
             api_uri, auth_params = ServiceRegistry.generate_service_url(
                 self.SERVICE_NAME, self.OPERATION_NAME, additional_params=additional_params)
@@ -81,21 +89,26 @@ class SecurityGroup(Resource):
                 f'AWS Error Code:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {awsErrorCode}')
             sys.exit(1)
 
-        group_id = response_dict['DescribeSecurityGroupsResponse']['securityGroupInfo']['item']['groupId']
+        load_balancer_state = response_dict['DescribeLoadBalancersResponse'][
+            'DescribeLoadBalancersResult']['LoadBalancers']['member']['State']['Code']
 
         logging.debug(
-            f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} Status:: {security_group_id == group_id}')
+            f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} Status:: {load_balancer_state}')
 
-        return group_id == security_group_id
+        return load_balancer_state
 
-    def create_ingress_rule(self, security_group_id, rule):
-        self.OPERATION_NAME = rule
-        
+    def create_listener(self, load_balancer_arn, target_group_arn):
+        self.OPERATION_NAME = 'createListener'
+
         logging.debug(f'START:: {self.SERVICE_NAME} {self.OPERATION_NAME}')
 
         try:
 
-            additional_params = {'GroupId.1': security_group_id}
+            # params
+            additional_params = {
+                'LoadBalancerArn': load_balancer_arn,
+                'DefaultActions.member.1.TargetGroupArn': target_group_arn
+            }
 
             api_uri, auth_params = ServiceRegistry.generate_service_url(
                 self.SERVICE_NAME, self.OPERATION_NAME, additional_params=additional_params)
@@ -104,7 +117,6 @@ class SecurityGroup(Resource):
                 method='GET', url=api_uri, auth=auth_params)
 
             response_dict = Resource.parseResponse(response)
-
             logging.debug(
                 f'Response:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {response_dict}')
 
@@ -113,12 +125,14 @@ class SecurityGroup(Resource):
         except requests.exceptions.HTTPError:
             logging.debug(
                 f'Http Error:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {requests.exceptions.HTTPError}')
-            awsErrorCode = response_dict['Response']['Errors']['Error']['Code']
+            awsErrorCode = response_dict['ErrorResponse']['Error']['Code']
             logging.debug(
                 f'AWS Error Code:: {self.SERVICE_NAME} {self.OPERATION_NAME}:: {awsErrorCode}')
             sys.exit(1)
-        security_group_rule_id = response_dict['AuthorizeSecurityGroupIngressResponse']['securityGroupRuleSet']['item']['securityGroupRuleId']
-        logging.debug(
-            f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} Status:: {security_group_rule_id}')
 
-        return security_group_rule_id
+        listener_arn = response_dict['CreateListenerResponse'][
+            'CreateListenerResult']['Listeners']['member']['ListenerArn']
+        logging.debug(
+            f'END:: {self.SERVICE_NAME} {self.OPERATION_NAME} New Load Balancer ARN:: {listener_arn}')
+
+        return listener_arn
