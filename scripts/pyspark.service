@@ -1,0 +1,24 @@
+# [Unit] tells systemd *what* this service is and *when* to start it
+[Unit]
+Description=PySpark with Jupyter
+# Don’t start this service until the machine has Internet access
+After=network.target
+After=systemd-user-sessions.service
+After=network-online.target
+# [Service] tells systemd *how* to start this service
+[Service]
+User=ubuntu
+#Should usually be the same as User
+Group=ubuntu
+# Wherever you want Jupyter to save user files
+WorkingDirectory=/home/ubuntu/
+# Run the pyspark command to start this service
+ExecStart=/opt/spark/bin/pyspark
+# Services do not inherit the user’s environment variables (including
+# PATH!); they must be explicitly defined
+Environment=PYSPARK_DRIVER_PYTHON="/home/ubuntu/.local/bin/jupyter"
+Environment=PYSPARK_DRIVER_PYTHON_OPTS="notebook --no-browser --ip=* --NotebookApp.token="""
+# [Install] tells systemd *why* it should start this service by
+# defining a dependency chain with other services
+[Install]
+WantedBy=multi-user.target
